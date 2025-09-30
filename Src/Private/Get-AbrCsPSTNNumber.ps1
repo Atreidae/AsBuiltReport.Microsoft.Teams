@@ -14,11 +14,14 @@ function Get-AbrCsPSTNNumber {
     .LINK
 
     #>
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Scope='Function')] #we are litterally showing something on screen for interactive purposes.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidUsingWriteHost', '', Scope = 'Function')] #we are litterally showing something on screen for interactive purposes.
 
 
     [CmdletBinding()]
     param (
+        [Switch] $UseOfflineData, #Use offline data from the sample data path
+        [Switch] $SaveOfflineData, #Save the data retrieved to the sample data path for future use
+        [String] $SampleTenant = "TestTenant1" #The name of the folder in /Dev/Samples to use
     )
 
     begin {
@@ -26,11 +29,30 @@ function Get-AbrCsPSTNNumber {
     }
 
     process {
+        #Check to see if UseOfflineData and SaveOfflineData are both set, if so, throw an error
+        if ($UseOfflineData -and $SaveOfflineData) {
+            throw "You cannot use both UseOfflineData and SaveOfflineData at the same time. Please select one or the other. Report Aborted."
+        }
+
+        if ($UseOfflineData) {
+            # Example: Load sample tenant data
+            Write-PScriboMessage 'Using Offline Phone Number Data'
+            Write-Verbose 'Using Offline Phone Number Data'
+            $CsTenant = Get-Content -Path (Join-Path $SampleDataPath 'Tenant.json') | ConvertFrom-Json
+        } else {
+            Write-Host "Collecting Phone Numbers, This may take some time" -ForegroundColor Green
+            Write-PScriboMessage 'Collecting Phone Numbers.'
+            $PhoneNumbers = Get-CsPhoneNumberAssignment -Top 1000000 | Sort-Object PhoneNumber
+            #Save the data if required
+            if ($SaveOfflineData) {
+                # Save object to file
+                $PhoneNumbers | ConvertTo-Json -Depth 10 | Set-Content -Path (Join-Path $SampleDataPath 'PhoneNumbers.json')
+            }
+        }
 
         #Region Phone Numbers
-        Write-PScriboMessage 'Collecting Phone Numbers.'
-        Write-Host "Collecting Phone Numbers, This may take some time" -ForegroundColor Green
-        $PhoneNumbers = Get-CsPhoneNumberAssignment -Top 1000000| Sort-Object PhoneNumber
+
+
         if (($InfoLevel.PhoneNumbers -gt 0) -and ($PhoneNumbers)) {
             Section -Style Heading2 'Telephone Numbers' {
                 Write-Host "Calculating phone number properties, This may take some time" -ForegroundColor Green
@@ -160,7 +182,7 @@ function Get-AbrCsPSTNNumber {
                     if ($Healthcheck.PhoneNumbers.LowAvailability) {
                         Write-PScriboMessage 'Low Availability Healthcheck'
                         $PhoneNumbersSummary | Where-Object { $_.'Available User Numbers' -lt ((($PhoneNumbersSummary.UserNumbers.count) / 10)) } | Set-Style -Style Critical -Property 'Available User Numbers'
-                        $PhoneNumbersSummary | Where-Object { $_.'Available Service Numbers' -lt ((($PhoneNumbersSummary.ServiceNumbers.count) / 50))} | Set-Style -Style Critical -Property 'Available Service Numbers'
+                        $PhoneNumbersSummary | Where-Object { $_.'Available Service Numbers' -lt ((($PhoneNumbersSummary.ServiceNumbers.count) / 50)) } | Set-Style -Style Critical -Property 'Available Service Numbers'
                     }
 
 
@@ -211,7 +233,7 @@ function Get-AbrCsPSTNNumber {
                     } else {
 
                         Paragraph 'The following tables show a summary of PSTN numbers broken down by their city.'
-                        ForEach ($UniqueCityInfo in $CityNumberInfo) {
+                        foreach ($UniqueCityInfo in $CityNumberInfo) {
                             Section -Style Heading4 "$($UniqueCityInfo.City)" {
                                 $TableParams = @{
                                     Name = "Numbers By City - $($UniqueCityInfo.City)"
@@ -271,7 +293,7 @@ function Get-AbrCsPSTNNumber {
                     } else {
 
                         Paragraph 'The following tables show a summary of PSTN numbers broken down by their provider.'
-                        ForEach ($UniqueProviderNumberInfo in $ProviderNumberInfo) {
+                        foreach ($UniqueProviderNumberInfo in $ProviderNumberInfo) {
                             Section -Style Heading4 "$($UniqueProviderNumberInfo.Provider)" {
                                 $TableParams = @{
                                     Name = "Numbers By Provider - $($UniqueProviderNumberInfo.Provider)"
@@ -290,22 +312,21 @@ function Get-AbrCsPSTNNumber {
                     $HundredNumberInfo = @()
                     foreach ($HundredNumberBlock in $HundredNumberBlocks) {
                         #Calculate provider
-                        if ( ($PhoneNumbers | Where-Object {($_.TelephoneNumber -match "\$($HundredNumberBlock)*") -and ($_.NumberType -eq 'DirectRouting')}))
-                        {
+                        if ( ($PhoneNumbers | Where-Object { ($_.TelephoneNumber -match "\$($HundredNumberBlock)*") -and ($_.NumberType -eq 'DirectRouting') })) {
                             $Provider = 'Direct Routing'
                         } else {
-                            $Provider = ($PhoneNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)*"} | Select-Object -ExpandProperty PstnPartnerName -Unique)
+                            $Provider = ($PhoneNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)*" } | Select-Object -ExpandProperty PstnPartnerName -Unique)
                         }
 
                         $InObj = [Ordered]@{
                             'NumberBlock' = "$($HundredNumberBlock)xx"
-                            'Total Numbers' = ($PhoneNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)\d{2}$"}).count
-                            'User Numbers' = ($UserNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)\d{2}$"}).count
-                            'Service Numbers' = ($ServiceNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)\d{2}$"}).count
-                            'Assigned User Numbers' = ($AssignedUserNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)\d{2}$"}).count
-                            'Assigned Service Numbers' = ($AssignedServiceNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)\d{2}$"}).count
-                            'Available User Numbers' = ($UnassignedUserNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)\d{2}$"}).count
-                            'Available Service Numbers' = ($UnassignedServiceNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)\d{2}$"}).count
+                            'Total Numbers' = ($PhoneNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)\d{2}$" }).count
+                            'User Numbers' = ($UserNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)\d{2}$" }).count
+                            'Service Numbers' = ($ServiceNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)\d{2}$" }).count
+                            'Assigned User Numbers' = ($AssignedUserNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)\d{2}$" }).count
+                            'Assigned Service Numbers' = ($AssignedServiceNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)\d{2}$" }).count
+                            'Available User Numbers' = ($UnassignedUserNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)\d{2}$" }).count
+                            'Available Service Numbers' = ($UnassignedServiceNumbers | Where-Object { $_.TelephoneNumber -match "\$($HundredNumberBlock)\d{2}$" }).count
                             'Provider' = $Provider
                         }
                         [System.Collections.ArrayList]$HundredNumberInfo += [PSCustomObject]$InObj
@@ -327,17 +348,16 @@ function Get-AbrCsPSTNNumber {
                             Name = 'Numbers By Range'
                             List = $false
                             Columns = 'NumberBlock', 'User Numbers', 'Service Numbers', 'Available User Numbers', 'Available Service Numbers', 'Total Numbers', 'Provider'
-                            ColumnWidths = 30, 10, 10, 10, 10, 10 ,20
+                            ColumnWidths = 30, 10, 10, 10, 10, 10 , 20
                         }
                         if ($Report.ShowTableCaptions) {
                             $TableParams['Caption'] = "- $($TableParams.Name)"
                         }
                         $HundredNumberInfo | Table @TableParams
-                    }
-                    else {
+                    } else {
 
                         Paragraph 'The following tables show a summary of PSTN numbers broken down by their number range.'
-                        ForEach ($HundredNumberblock in $HundredNumberInfo) {
+                        foreach ($HundredNumberblock in $HundredNumberInfo) {
                             Section -Style Heading4 "$($HundredNumberblock.NumberBlock)" {
                                 $TableParams = @{
                                     Name = "Numbers By Range - $($HundredNumberblock.NumberBlock)"
@@ -358,7 +378,7 @@ function Get-AbrCsPSTNNumber {
                 }
                 #Application instances that are not AA or CQ's
 
-                
+
             }
         } else {
             Section -Style Heading2 'Telephone Numbers' {

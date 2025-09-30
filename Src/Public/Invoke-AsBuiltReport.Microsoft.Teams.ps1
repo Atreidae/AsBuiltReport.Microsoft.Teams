@@ -8,26 +8,26 @@ function Invoke-AsBuiltReport.Microsoft.Teams {
     .NOTES
         Version:        0.1.0
         Author:         James Arber
-        Twitter:
-        Github:
+        Twitter:        UCMadScientist
+        Github:         Atreidae
         Credits:        Iain Brighton (@iainbrighton) - PScribo module
-
+                        Tim Carman (@tpcarman) - AsBuiltReport core project
     .LINK
         https://github.com/AsBuiltReport/AsBuiltReport.Microsoft.Teams
     #>
 
-    # Do not remove or add to these parameters
     param (
         [String[]] $Target,
         [PSCredential] $Credential,
         [Switch] $MFA
     )
-    #Get-RequiredModule -Name 'MicrosoftTeams' -Version '5.0.0'
 
     Write-PScriboMessage -Plugin 'Module' -Message 'Please refer to the AsBuiltReport.Microsoft.Teams GitHub website for more detailed information about this project.'
     Write-PScriboMessage -Plugin 'Module' -Message 'Do not forget to update your report configuration file after each new version release: https://www.asbuiltreport.com/user-guide/new-asbuiltreportconfig/'
     Write-PScriboMessage -Plugin 'Module' -Message 'Documentation: https://github.com/AsBuiltReport/AsBuiltReport.Microsoft.Teams'
     Write-PScriboMessage -Plugin 'Module' -Message 'Issues or bug reporting: https://github.com/AsBuiltReport/AsBuiltReport.Microsoft.Teams/issues'
+    Write-PScriboMessage -Plugin 'Module' -Message 'Support or consultancy: https://www.ucmadscientist.com/contact/'
+
 
     # Check the current AsBuiltReport.Microsoft.Teams module
     $InstalledVersion = Get-Module -ListAvailable -Name AsBuiltReport.Microsoft.Teams -ErrorAction SilentlyContinue | Sort-Object -Property Version -Descending | Select-Object -First 1 -ExpandProperty Version
@@ -41,8 +41,12 @@ function Invoke-AsBuiltReport.Microsoft.Teams {
         }
     }
 
-    #Check for Teams module
-    Get-RequiredModule -Name 'MicrosoftTeams' -Version '5.0.0'
+    #Check for requied modules, throws error and exits if not found
+    @(
+        @{ Name = 'MicrosoftTeams'; Version = '5.0.0' }
+        @{ Name = 'PnP.PowerShell'; Version = '2.0.0' } #Todo Why? we need graph dont we?
+    ) | Test-RequiredModule
+
 
     # Import Report Configuration
     $Report = $ReportConfig.Report
@@ -53,45 +57,56 @@ function Invoke-AsBuiltReport.Microsoft.Teams {
     #External optional files path for LIS and Direct Routing Numbers
     $SiteContactsPath = $ReportConfig.SiteContactsPathToFile
     $DirectRoutingNumbersPath = $ReportConfig.DirectRoutingNumberRangesPathToFile
+
     # Used to set values to TitleCase where required
     $TextInfo = (Get-Culture).TextInfo
 
-    # Whilst AsBuiltReport supports multiple targets, due to the interactive nature of Microsoft logins, this module only supports a single target. If you wish to support multiple targets, you will need to use token authentication and update the code below to support this.
+    # Whilst AsBuiltReport.Core supports multiple targets, due to the interactive nature of Microsoft logins, this module only supports a single target. If you wish to support multiple targets, you will need to use token authentication and update the code below to support this.
     # I may look to add support for multiple targets in the future using tokens, but for now, this is not a priority. -UcMadScientist
 
     #region foreach loop
     foreach ($TenantId in $Target) {
-        #First, check to see if we are already connected to the tenant
-        Try {
-            Write-PScriboMessage "Checking for connection to $TenantId'."
-            if ((Get-CsTenant).tenantid -ne $TenantId) {
-                Write-PScriboMessage "Wrong Tenant'." -IsWarning
-                Throw 'Connected to Wrong Tenant, Reconnecting'
-            } else {
-                Write-PScriboMessage "Already connected to $TenantId'."
-                $CsAccount = $true
-            }
-        } Catch {
-            Try {
-                Write-PScriboMessage "Connecting to Teams Tenant ID '$TenantId'."
-                if ($MFA) {
-                    $CsAccount = Connect-MicrosoftTeams -TenantId $TenantId -ErrorAction Stop
+        if (-not $useOfflineData) {
+            #If we are not using offline data, connect to the tenant
+            try {
+                Write-PScriboMessage "Checking for connection to $TenantId'."
+                if ((Get-CsTenant).tenantid -ne $TenantId) {
+                    Write-PScriboMessage "Wrong Tenant'." -IsWarning
+                    throw 'Connected to Wrong Tenant, Reconnecting'
                 } else {
-                    $CsAccount = Connect-MicrosoftTeams -Credential $Credential -TenantId $TenantId -ErrorAction Stop
+                    Write-PScriboMessage "Already connected to $TenantId'."
+                    $CsAccount = $true
                 }
-            } Catch {
-                Write-Error $_
+            } catch {
+                try {
+                    Write-PScriboMessage "Connecting to Teams Tenant ID '$TenantId'."
+                    if ($MFA) {
+                        $CsAccount = Connect-MicrosoftTeams -TenantId $TenantId -ErrorAction Stop
+                    } else {
+                        $CsAccount = Connect-MicrosoftTeams -Credential $Credential -TenantId $TenantId -ErrorAction Stop
+                    }
+                } catch {
+                    Write-Error $_
+                }
+
+
             }
-
-
+        } else {
+            #No need to connect, we are using offline data
+            Write-PScriboMessage -Plugin 'Module' -Message "Using offline data for tenant '$TenantId'."
+            $CsAccount = $true
         }
-
+        #Only proceed if we have a valid connection or are using offline data
         if ($CsAccount) {
             #Collect Teams Tenant information
-            $CsTenant = Get-CsTenant
+            Write-PScriboMessage "Connectivity to tenant '$TenantId' successful."
+            Else {
+                throw "Failed to connect to tenant '$TenantId'. Aborting report."
+            }
 
+            #Start building the report
             Section -Style Heading1 "$($CsTenant.DisplayName) Basic Tenant Information" {
-                Get-AbrCsTenant
+                Get-AbrCsTenant -UseOfflineData:$UseOfflineData -SaveOfflineData:$SaveOfflineData -TenantCachePath $TenantCachePath
             }
             PageBreak
             Section -Style Heading1 'PSTN Calling Configuration' {
@@ -110,12 +125,13 @@ function Invoke-AsBuiltReport.Microsoft.Teams {
                         Text 'This section covers PSTN Calling settings that affect PSTN calls within your Teams Tenant.' }
                     BlankLine
                 }
+
                 Get-AbrCsPSTNNumber
                 Get-AbrCsPSTNCallRouting
             }
             PageBreak
             Section -Style Heading1 "$($CsTenant.DisplayName) Teams and Channels" {
-               #todo stuff
+                #todo stuff
             }
             PageBreak
             Section -Style Heading1 "$($CsTenant.DisplayName) Devices" {
@@ -133,7 +149,7 @@ function Invoke-AsBuiltReport.Microsoft.Teams {
 
             Section -Style Heading1 "Locations in the Tenant" {
                 Get-AbrCsOnlineLisLocation
-                Paragraph {Text "<a href='https://www.bing.com'>Click here to visit Bing</a>"}
+                Paragraph { Text "<a href='https://www.bing.com'>Click here to visit Bing</a>" }
 
             }
 

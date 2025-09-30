@@ -1,0 +1,27 @@
+    {
+        "Email": {
+            "Port": "25",
+            "Server": "127.0.0.1",
+            "Body": "AsBuiltReport attached",
+            "UseSSL": true,
+            "To": [
+            "wile.e.coyote@acme.inc"
+            ],
+            "Credentials": false,
+            "From": "support@asbuiltreport.com"
+        },
+        "UserFolder": {
+            "Path": "C:\\Documents\\Clients\\ACME\\AsBuiltReport"
+        },
+        "Company": {
+            "ShortName": "ACME",
+            "Phone": "555-555-5555",
+            "Contact": "Wile E. Coyote",
+            "Email": "wile.e.coyote@acme.inc",
+            "Address": "1 Looney Tunes Street",
+            "FullName": "ACME Inc"
+        },
+        "Report": {
+            "Author": "James Arber"
+        }
+    }
